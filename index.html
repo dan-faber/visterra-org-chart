@@ -267,8 +267,23 @@ const NODE_H = 78;
 const H_GAP = 16;
 const V_GAP = 44;
 
+const STACK_V_GAP = 6; // tight vertical gap for stacked children
+
+function isStackParent(node) {
+  // Stack children vertically if ALL children are leaf nodes (level 6)
+  return !node.collapsed && node.children.length > 0 &&
+    node.children.every(c => c.children.length === 0);
+}
+
+function stackHeight(node) {
+  // Height of a vertically stacked group under a parent
+  const n = node.children.length;
+  return n * NODE_H + (n - 1) * STACK_V_GAP;
+}
+
 function subtreeWidth(node) {
   if (node.collapsed || node.children.length === 0) return NODE_W;
+  if (isStackParent(node)) return NODE_W; // stacked = same width as parent
   let w = 0;
   node.children.forEach((c, i) => {
     w += subtreeWidth(c);
@@ -277,17 +292,37 @@ function subtreeWidth(node) {
   return Math.max(NODE_W, w);
 }
 
+function subtreeHeight(node) {
+  if (node.collapsed || node.children.length === 0) return NODE_H;
+  if (isStackParent(node)) return NODE_H + V_GAP + stackHeight(node);
+  let maxChildH = 0;
+  node.children.forEach(c => {
+    maxChildH = Math.max(maxChildH, subtreeHeight(c));
+  });
+  return NODE_H + V_GAP + maxChildH;
+}
+
 function layoutTree(node, x, y) {
   const w = subtreeWidth(node);
   node._x = x + w / 2 - NODE_W / 2;
   node._y = y;
   if (!node.collapsed && node.children.length > 0) {
-    let cx = x;
-    node.children.forEach((c, i) => {
-      const cw = subtreeWidth(c);
-      layoutTree(c, cx, y + NODE_H + V_GAP);
-      cx += cw + H_GAP;
-    });
+    if (isStackParent(node)) {
+      // Stack children vertically, centered under parent
+      let cy = y + NODE_H + V_GAP;
+      node.children.forEach(c => {
+        c._x = node._x;
+        c._y = cy;
+        cy += NODE_H + STACK_V_GAP;
+      });
+    } else {
+      let cx = x;
+      node.children.forEach((c, i) => {
+        const cw = subtreeWidth(c);
+        layoutTree(c, cx, y + NODE_H + V_GAP);
+        cx += cw + H_GAP;
+      });
+    }
   }
 }
 
@@ -375,10 +410,15 @@ function drawConnector(parent, child) {
   const py = parent._y + NODE_H;
   const cx = child._x + NODE_W / 2;
   const cy = child._y;
-  const midY = py + (cy - py) / 2;
 
   const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-  path.setAttribute('d', `M${px},${py} L${px},${midY} L${cx},${midY} L${cx},${cy}`);
+  if (px === cx) {
+    // Stacked: straight line down
+    path.setAttribute('d', `M${px},${py} L${cx},${cy}`);
+  } else {
+    const midY = py + (cy - py) / 2;
+    path.setAttribute('d', `M${px},${py} L${px},${midY} L${cx},${midY} L${cx},${cy}`);
+  }
   svg.appendChild(path);
 }
 
